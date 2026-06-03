@@ -41,12 +41,25 @@ class StreamingService : Service() {
     private var whipFailures = 0
     private var started = false
 
+    @Volatile private var foregroundOk = false
+
     override fun onCreate() {
         super.onCreate()
-        startForegroundWithType()
+        // Starting a camera/mic foreground service from the background (e.g. after
+        // boot) is blocked by Android 12+. If that happens, stop gracefully
+        // instead of crash-looping — the boot notification handles resume.
+        try {
+            startForegroundWithType()
+            foregroundOk = true
+        } catch (e: Exception) {
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // If we couldn't go foreground (background camera-FGS restriction), don't
+        // retry — bail without restarting.
+        if (!foregroundOk) { stopSelf(); return START_NOT_STICKY }
         val config = ConfigStore.load(this) ?: run { stopSelf(); return START_NOT_STICKY }
 
         if (!started) {

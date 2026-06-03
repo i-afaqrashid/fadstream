@@ -25,6 +25,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { MaterialTheme { HomeScreen() } }
+
+        // Resume-after-reboot: launched from the boot notification. We're now in
+        // the foreground, so starting the camera service is allowed.
+        if (intent?.getBooleanExtra("autostart", false) == true && ConfigStore.load(this) != null) {
+            StreamingService.start(this)
+        }
     }
 
     @Composable
