@@ -85,10 +85,21 @@ class StreamingService : Service() {
                     onState = { state ->
                         updateNotification("whip $state")
                         if (state == "whip:connected" || state == "ice:COMPLETED") whipFailures = 0
-                        if (state == "pc:FAILED" || state == "ice:FAILED" ||
-                            state == "ice:DISCONNECTED" || state.startsWith("whip:netError") ||
-                            state.startsWith("whip:error")) {
-                            onWhipFailure(config)
+                        when {
+                            // Camera lost to another app / disconnected / failed to
+                            // open: NOT a network problem, so don't fall back to SRT
+                            // (it needs the camera too). Just retry acquiring it.
+                            state.startsWith("camera:error") ||
+                                state.startsWith("camera:disconnected") ||
+                                state.startsWith("camera:frozen") ||
+                                state.startsWith("camera:startFailed") ||
+                                state.startsWith("camera:none") ->
+                                scheduleCameraRecovery(config)
+                            // Network/connection failures -> WHIP reconnect / SRT fallback.
+                            state == "pc:FAILED" || state == "ice:FAILED" ||
+                                state == "ice:DISCONNECTED" || state.startsWith("whip:netError") ||
+                                state.startsWith("whip:error") ->
+                                onWhipFailure(config)
                         }
                     }
                     init()
@@ -122,6 +133,27 @@ class StreamingService : Service() {
             whip = null
             reconnectGuard = false
             if (transport == "whip") { updateNotification("reconnecting…"); startWhip(config) }
+        }
+    }
+
+    @Volatile private var cameraRecovering = false
+
+    /**
+     * Camera was lost (another app opened it, disconnected, or failed to open).
+     * Keep retrying to re-acquire it every few seconds until it's free again —
+     * the camera-open simply fails while another app holds it, then succeeds
+     * once that app releases it.
+     */
+    private fun scheduleCameraRecovery(config: com.fadstream.app.stream.DeviceConfig) {
+        if (cameraRecovering) return
+        cameraRecovering = true
+        thread(name = "camera-recovery") {
+            Thread.sleep(4000)
+            cameraRecovering = false
+            updateNotification("camera busy — retrying…")
+            // Restart whichever transport is active (re-acquires the camera).
+            stopAllStreams()
+            startStreaming(config)
         }
     }
 
