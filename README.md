@@ -1,6 +1,5 @@
 # FadStream
 
-[![Build Android APK](https://github.com/I-afaqrashid/fadstream/actions/workflows/android.yml/badge.svg)](https://github.com/I-afaqrashid/fadstream/actions/workflows/android.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 Open-source, self-hosted "install once and forget" Android streaming camera.
@@ -10,9 +9,9 @@ to S3.
 
 ## 📲 Download the test APK
 
-Grab the latest debug build from the **[Releases page](https://github.com/I-afaqrashid/fadstream/releases/tag/latest)**
-(`FadStream-debug.apk`), enable "install from unknown sources", and sideload it.
-Every push to `main` rebuilds it on GitHub's runners — see the [Actions tab](https://github.com/I-afaqrashid/fadstream/actions).
+Grab the latest debug build (`FadStream-debug.apk`) from this repo's **Releases**
+tab, enable "install from unknown sources", and sideload it. Every push to `main`
+rebuilds it on GitHub's runners (see the **Actions** tab).
 
 > **Ethical use:** the Android app shows a persistent recording indicator and is
 > meant to be installed by the device owner on their own device (security cam,
