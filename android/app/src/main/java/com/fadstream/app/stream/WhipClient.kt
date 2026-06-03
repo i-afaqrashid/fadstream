@@ -10,6 +10,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.webrtc.*
+import org.webrtc.audio.JavaAudioDeviceModule
 import java.util.concurrent.TimeUnit
 
 /**
@@ -48,7 +49,26 @@ class WhipClient(private val context: Context) {
         )
         val encoder = DefaultVideoEncoderFactory(eglBase.eglBaseContext, true, true)
         val decoder = DefaultVideoDecoderFactory(eglBase.eglBaseContext)
+
+        // Audio device module with error callbacks so a phone call (or any app)
+        // grabbing the mic doesn't crash the stream — video keeps going, and
+        // WebRTC re-inits the recorder when the mic is free again.
+        val adm = JavaAudioDeviceModule.builder(context)
+            .setAudioRecordErrorCallback(object : JavaAudioDeviceModule.AudioRecordErrorCallback {
+                override fun onWebRtcAudioRecordInitError(msg: String?) { onState?.invoke("audio:initError") }
+                override fun onWebRtcAudioRecordStartError(
+                    code: JavaAudioDeviceModule.AudioRecordStartErrorCode?, msg: String?
+                ) { onState?.invoke("audio:startError") }
+                override fun onWebRtcAudioRecordError(msg: String?) { onState?.invoke("audio:recordError") }
+            })
+            .setAudioRecordStateCallback(object : JavaAudioDeviceModule.AudioRecordStateCallback {
+                override fun onWebRtcAudioRecordStart() { onState?.invoke("audio:recording") }
+                override fun onWebRtcAudioRecordStop() { onState?.invoke("audio:stopped") }
+            })
+            .createAudioDeviceModule()
+
         factory = PeerConnectionFactory.builder()
+            .setAudioDeviceModule(adm)
             .setVideoEncoderFactory(encoder)
             .setVideoDecoderFactory(decoder)
             .createPeerConnectionFactory()

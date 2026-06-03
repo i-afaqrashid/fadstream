@@ -27,6 +27,7 @@ class StreamingService : Service() {
     private var whip: WhipClient? = null
     private var srt: SrtClient? = null
     private var control: ControlClient? = null
+    private var callMonitor: CallMonitor? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     // Transport state. WHIP is primary; after repeated WHIP failures we fall
@@ -61,6 +62,12 @@ class StreamingService : Service() {
                 facingProvider = { if (isFront) "front" else "back" },
                 transportProvider = { transport },
             ).also { it.connect() }
+
+            // Recover the mic after a phone call ends (telephony owns it during a call).
+            callMonitor = CallMonitor(this) {
+                updateNotification("call ended — recovering audio")
+                stopAllStreams(); startStreaming(config)
+            }.also { it.start() }
         }
         return START_STICKY   // restart us if the OS kills the process
     }
@@ -237,6 +244,7 @@ class StreamingService : Service() {
 
     override fun onDestroy() {
         stopAllStreams()
+        callMonitor?.stop()
         control?.close()
         wakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()

@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
 
             Button(onClick = {
                 perms.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO,
-                    Manifest.permission.POST_NOTIFICATIONS))
+                    Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.READ_PHONE_STATE))
             }, modifier = Modifier.fillMaxWidth()) { Text("1. Grant camera / mic / notifications") }
 
             Button(onClick = {
