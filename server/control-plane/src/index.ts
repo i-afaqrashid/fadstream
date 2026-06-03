@@ -78,6 +78,13 @@ app.post("/api/devices/:id/command", async (req, reply) => {
   return result;
 });
 
+// Flip the device camera between back and front (selfie).
+app.post("/api/devices/:id/camera/switch", async (req) => {
+  const { id } = req.params as { id: string };
+  const r = await sendCommand(id, "switchCamera", {}, "admin");
+  return r;
+});
+
 // --- On-demand recording control (saves to S3/MinIO on stop) ----------------
 // startRecording / stopRecording are just commands the device & recorder honor,
 // but we also flip server-side recording so footage is captured even if the

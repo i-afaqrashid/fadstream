@@ -39,26 +39,54 @@ class ControlClient(
         ws = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 backoffMs = 1000L
-                sendHeartbeat("live")
+                startHeartbeatLoop(webSocket)
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
-                val msg = JSONObject(text)
-                if (msg.optString("kind") == "command") {
-                    val type = msg.optString("type")
-                    Log.i(TAG, "command: $type")
-                    onCommand(type)
-                    // ack so the server marks it delivered+handled
-                    webSocket.send(JSONObject().put("kind", "ack").put("id", msg.opt("id")).toString())
+                // A handler exception must NOT bubble up and tear down the socket.
+                try {
+                    val msg = JSONObject(text)
+                    if (msg.optString("kind") == "command") {
+                        val type = msg.optString("type")
+                        Log.i(TAG, "command: $type")
+                        // ack first so delivery is recorded even if the handler is slow
+                        webSocket.send(JSONObject().put("kind", "ack").put("id", msg.opt("id")).toString())
+                        onCommand(type)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "onMessage error: ${e.message}")
                 }
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, r: Response?) {
                 Log.w(TAG, "control ws failed: ${t.message}")
+                heartbeatRunning = false
                 if (!closed) scheduleReconnect()
             }
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                heartbeatRunning = false
                 if (!closed) scheduleReconnect()
             }
         })
+    }
+
+    @Volatile private var heartbeatRunning = false
+
+    /**
+     * Send a heartbeat every 15s while the socket is open. Without continuous
+     * traffic the connection can be reaped by NAT/proxies/Doze, which is what
+     * caused the control channel to die seconds after connecting.
+     */
+    private fun startHeartbeatLoop(webSocket: WebSocket) {
+        heartbeatRunning = true
+        Thread {
+            while (heartbeatRunning && !closed) {
+                val ok = webSocket.send(
+                    JSONObject().put("kind", "heartbeat")
+                        .put("status", "live").put("transport", "whip").toString()
+                )
+                if (!ok) break          // socket no longer writable
+                try { Thread.sleep(15_000) } catch (_: InterruptedException) { break }
+            }
+        }.apply { isDaemon = true; name = "control-heartbeat" }.start()
     }
 
     fun sendHeartbeat(status: String, transport: String = "whip") {

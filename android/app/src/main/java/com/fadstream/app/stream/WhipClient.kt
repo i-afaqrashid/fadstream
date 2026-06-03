@@ -175,6 +175,22 @@ class WhipClient(private val context: Context) {
         })
     }
 
+    /** Flip between back and front (selfie) camera on the live stream. */
+    fun switchCamera() {
+        try {
+            capturer?.switchCamera(object : CameraVideoCapturer.CameraSwitchHandler {
+                override fun onCameraSwitchDone(isFront: Boolean) {
+                    onState?.invoke(if (isFront) "camera:front" else "camera:back")
+                }
+                override fun onCameraSwitchError(error: String?) {
+                    onState?.invoke("camera:switchError:$error")
+                }
+            })
+        } catch (e: Exception) {
+            onState?.invoke("camera:switchError:${e.message}")
+        }
+    }
+
     fun stop() {
         try { capturer?.stopCapture() } catch (_: Exception) {}
         capturer?.dispose()

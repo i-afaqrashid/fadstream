@@ -98,6 +98,7 @@ class StreamingService : Service() {
         when (type) {
             "stop" -> stopSelf()
             "restart" -> { try { whip?.stop() } catch (_: Exception) {}; whip = null; startWhip(config) }
+            "switchCamera" -> whip?.switchCamera()   // back <-> front (selfie)
             // startRecording/stopRecording are honored server-side (MediaMTX);
             // hook here if you also want on-device behavior.
         }
