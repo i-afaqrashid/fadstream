@@ -28,6 +28,8 @@ class StreamingService : Service() {
     private var srt: SrtClient? = null
     private var control: ControlClient? = null
     private var callMonitor: CallMonitor? = null
+    private var netCallback: android.net.ConnectivityManager.NetworkCallback? = null
+    @Volatile private var hadNetwork = true
     private var wakeLock: PowerManager.WakeLock? = null
 
     // Transport state. WHIP is primary; after repeated WHIP failures we fall
@@ -68,6 +70,8 @@ class StreamingService : Service() {
                 updateNotification("call ended — recovering audio")
                 stopAllStreams(); startStreaming(config)
             }.also { it.start() }
+
+            registerNetworkMonitor(config)
         }
         return START_STICKY   // restart us if the OS kills the process
     }
@@ -143,6 +147,34 @@ class StreamingService : Service() {
         }
     }
 
+    /**
+     * Internet drop & recovery: when connectivity is lost then comes back (Wi-Fi
+     * toggles, airplane mode, cellular handoff), re-establish the stream on the
+     * new network instead of waiting for blind reconnect timeouts.
+     */
+    private fun registerNetworkMonitor(config: com.fadstream.app.stream.DeviceConfig) {
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val cb = object : android.net.ConnectivityManager.NetworkCallback() {
+            override fun onLost(network: android.net.Network) {
+                hadNetwork = false
+                updateNotification("network lost — waiting…")
+            }
+            override fun onAvailable(network: android.net.Network) {
+                if (!hadNetwork) {
+                    hadNetwork = true
+                    updateNotification("network back — reconnecting")
+                    whipFailures = 0
+                    // Fresh network is likely fine — prefer the low-latency primary
+                    // again (unless the user pinned a transport).
+                    if (!forced) transport = "whip"
+                    stopAllStreams(); startStreaming(config)
+                }
+            }
+        }
+        netCallback = cb
+        cm.registerDefaultNetworkCallback(cb)
+    }
+
     @Volatile private var cameraRecovering = false
 
     /**
@@ -170,12 +202,29 @@ class StreamingService : Service() {
         thread(name = "srt-start") {
             try {
                 srt = SrtClient(this).apply {
-                    onState = { state -> updateNotification("srt $state") }
+                    onState = { state ->
+                        updateNotification("srt $state")
+                        if (state.startsWith("srt:failed") || state == "srt:disconnected") {
+                            scheduleSrtReconnect(config)
+                        }
+                    }
                     start(config)
                 }
             } catch (e: Throwable) {
                 updateNotification("srt error: ${e.message}")
+                scheduleSrtReconnect(config)
             }
+        }
+    }
+
+    @Volatile private var srtReconnecting = false
+    private fun scheduleSrtReconnect(config: com.fadstream.app.stream.DeviceConfig) {
+        if (srtReconnecting || transport != "srt") return
+        srtReconnecting = true
+        thread(name = "srt-reconnect") {
+            Thread.sleep(3000)
+            srtReconnecting = false
+            if (transport == "srt") { stopSrt(); startSrt(config) }
         }
     }
 
@@ -245,6 +294,10 @@ class StreamingService : Service() {
     override fun onDestroy() {
         stopAllStreams()
         callMonitor?.stop()
+        netCallback?.let {
+            try { (getSystemService(CONNECTIVITY_SERVICE) as android.net.ConnectivityManager)
+                .unregisterNetworkCallback(it) } catch (_: Exception) {}
+        }
         control?.close()
         wakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()
