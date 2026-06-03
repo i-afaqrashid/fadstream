@@ -41,7 +41,7 @@ webrtcLocalUDPAddress: :8189
 # In production set webrtcAdditionalHosts to your server's public IP/hostname
 # so ICE candidates are reachable from outside, e.g.:
 # webrtcAdditionalHosts: [stream.example.com]
-webrtcAdditionalHosts: []
+webrtcAdditionalHosts: [192.168.100.97]   # Mac LAN IP so the phone can reach ICE
 # Optional TURN for carriers that block direct UDP (cellular NAT):
 # webrtcICEServers2:
 #   - url: turn:turn.example.com:3478

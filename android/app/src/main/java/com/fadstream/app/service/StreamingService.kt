@@ -41,10 +41,14 @@ class StreamingService : Service() {
                 .also { it.acquire() }
 
             thread(name = "whip-start") {
-                whip = WhipClient(this).apply {
-                    onState = { updateNotification(it) }
-                    init()
-                    start(config)
+                try {
+                    whip = WhipClient(this).apply {
+                        onState = { updateNotification(it) }
+                        init()
+                        start(config)
+                    }
+                } catch (e: Throwable) {
+                    updateNotification("error: ${e.message}")
                 }
             }
 
