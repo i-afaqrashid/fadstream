@@ -30,13 +30,18 @@ class MainActivity : ComponentActivity() {
     @Composable
     private fun HomeScreen() {
         val ctx = this
-        var host by remember { mutableStateOf("10.0.2.2") }
-        var deviceId by remember { mutableStateOf("") }
-        var secret by remember { mutableStateOf("") }
-        var streamKey by remember { mutableStateOf("") }
-        var status by remember { mutableStateOf("Not enrolled") }
         val existing = remember { ConfigStore.load(ctx) }
-        if (existing != null) status = "Enrolled: ${existing.deviceId.take(8)}…"
+        // Pre-fill from saved config so it's never accidentally overwritten with
+        // defaults (and so the user can see/edit what's stored).
+        var host by remember { mutableStateOf(existing?.serverHost ?: "10.0.2.2") }
+        var deviceId by remember { mutableStateOf(existing?.deviceId ?: "") }
+        var secret by remember { mutableStateOf(existing?.secret ?: "") }
+        var streamKey by remember { mutableStateOf(existing?.streamKey ?: "") }
+        var status by remember {
+            mutableStateOf(
+                if (existing != null) "Enrolled: ${existing.deviceId.take(8)}…" else "Not enrolled"
+            )
+        }
 
         val perms = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()

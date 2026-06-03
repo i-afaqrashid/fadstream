@@ -30,11 +30,14 @@ class ControlClient(
     fun connect() {
         // fetchToken() does a blocking HTTP call, so it must never run on the
         // main thread (NetworkOnMainThreadException). Always connect on a worker.
+        Log.i(TAG, "connect() invoked")
         Thread { connectBlocking() }.start()
     }
 
     private fun connectBlocking() {
-        val token = fetchToken() ?: run { scheduleReconnect(); return }
+        Log.i(TAG, "connectBlocking: fetching token from ${config.controlPlane()}")
+        val token = fetchToken() ?: run { Log.w(TAG, "no token, will retry"); scheduleReconnect(); return }
+        Log.i(TAG, "got token, opening WS")
         val req = Request.Builder().url(config.controlWs(token)).build()
         ws = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
@@ -103,9 +106,14 @@ class ControlClient(
             .post(body.toRequestBody("application/json".toMediaType()))
             .build()
         http.newCall(req).execute().use { r ->
-            if (r.isSuccessful) JSONObject(r.body!!.string()).optString("token") else null
+            val bodyStr = r.body?.string().orEmpty()
+            Log.i(TAG, "token resp: code=${r.code} bodyLen=${bodyStr.length} body=${bodyStr.take(80)}")
+            if (r.isSuccessful) {
+                val tok = JSONObject(bodyStr).optString("token")
+                tok.ifBlank { null }
+            } else null
         }
-    } catch (e: Exception) { Log.w(TAG, "token fetch failed: ${e.message}"); null }
+    } catch (e: Exception) { Log.w(TAG, "token fetch failed: ${e.javaClass.simpleName}: ${e.message}"); null }
 
     private fun scheduleReconnect() {
         val delay = backoffMs

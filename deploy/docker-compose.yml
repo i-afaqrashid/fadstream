@@ -81,7 +81,34 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       PORT: "8080"
     ports:
-      - "8080:8080"   # REST + WSS control bus + MediaMTX auth hook
+      # Host 8090 (8080 is commonly taken by other local servers, e.g. nginx);
+      # container still listens on 8080 internally.
+      - "8090:8080"   # REST + WSS control bus + MediaMTX auth hook
+
+  # TURN/STUN relay: used when direct connection + hole-punching fail
+  # (symmetric NAT, strict firewalls, mobile carrier CGNAT). Media relays
+  # through here so a connection can ALWAYS be established.
+  #
+  # For a real public deployment:
+  #   1. Set TURN_PUBLIC_IP to the server's public IP.
+  #   2. Open UDP/TCP 3478 and the UDP relay range 49160-49200 in your firewall.
+  #   3. Point mediamtx (webrtcICEServers2) and the Android client at it.
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    network_mode: host    # TURN needs the real host network to relay properly
+    command: >
+      -n
+      --listening-port=3478
+      --realm=fadstream
+      --fingerprint
+      --lt-cred-mech
+      --user=fadstream:${TURN_PASSWORD:-change-me-in-prod}
+      --min-port=49160
+      --max-port=49200
+      --no-tls
+      --no-dtls
+      --external-ip=${TURN_PUBLIC_IP:-127.0.0.1}
 
   mediamtx:
     image: bluenviron/mediamtx:latest

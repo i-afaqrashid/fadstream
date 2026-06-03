@@ -56,9 +56,24 @@ class WhipClient(private val context: Context) {
 
     /** Start publishing. Blocking-ish; call from a background thread. */
     fun start(config: DeviceConfig) {
-        val rtcConfig = PeerConnection.RTCConfiguration(emptyList()).apply {
+        // ICE servers: STUN discovers the public IP for hole-punching; TURN
+        // RELAYS media when hole-punching fails (symmetric NAT / mobile CGNAT).
+        // On a LAN these are simply unused (direct connection wins). Pointed at
+        // the same host as the server by convention.
+        val iceServers = buildList {
+            add(PeerConnection.IceServer.builder("stun:${config.serverHost}:3478").createIceServer())
+            add(PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer())
+            if (config.turnPassword.isNotBlank()) {
+                add(
+                    PeerConnection.IceServer.builder("turn:${config.serverHost}:3478")
+                        .setUsername("fadstream")
+                        .setPassword(config.turnPassword)
+                        .createIceServer()
+                )
+            }
+        }
+        val rtcConfig = PeerConnection.RTCConfiguration(iceServers).apply {
             sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-            // Add TURN here for carriers that block direct UDP.
         }
 
         pc = factory.createPeerConnection(rtcConfig, object : PeerConnection.Observer {

@@ -62,7 +62,7 @@
 // In Docker the dashboard is served by nginx on :3000; control-plane on :8080,
 // MediaMTX WHEP on :8889. Adjust host if serving from a different origin.
 const HOST = location.hostname;
-const API = `http://${HOST}:8080`;
+const API = `http://${HOST}:8090`;
 const WHEP_BASE = `http://${HOST}:8889`;
 
 let activeDevice = null;

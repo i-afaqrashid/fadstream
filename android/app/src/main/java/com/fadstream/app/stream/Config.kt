@@ -15,13 +15,16 @@ data class DeviceConfig(
     val deviceId: String,
     val secret: String,
     val streamKey: String,
+    // Optional: TURN relay password (username is "fadstream"). Leave blank on
+    // LAN; set when deploying to a public server so bad-NAT phones can relay.
+    val turnPassword: String = "",
 ) {
     // MediaMTX WHIP ingest URL for this device's own path.
     fun whipUrl() = "http://$serverHost:8889/devices/$deviceId/whip?user=$deviceId&pass=$streamKey"
 
-    // Control bus + token endpoints on the control-plane.
-    fun controlPlane() = "http://$serverHost:8080"
-    fun controlWs(token: String) = "ws://$serverHost:8080/ws/device?token=$token"
+    // Control bus + token endpoints on the control-plane (host port 8090).
+    fun controlPlane() = "http://$serverHost:8090"
+    fun controlWs(token: String) = "ws://$serverHost:8090/ws/device?token=$token"
 }
 
 object ConfigStore {
@@ -35,6 +38,7 @@ object ConfigStore {
             deviceId = id,
             secret = p.getString("secret", "")!!,
             streamKey = p.getString("streamKey", "")!!,
+            turnPassword = p.getString("turnPassword", "")!!,
         )
     }
 
