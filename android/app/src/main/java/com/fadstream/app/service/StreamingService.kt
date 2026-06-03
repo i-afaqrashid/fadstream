@@ -321,6 +321,21 @@ class StreamingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    /**
+     * The user swiped the app away from recents. A foreground service should
+     * survive this, but aggressive OEMs (Samsung) sometimes tear it down — so we
+     * explicitly re-request ourselves to keep "install once and forget" working.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        if (StreamingService.isRunning) {
+            val restart = Intent(applicationContext, StreamingService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                applicationContext.startForegroundService(restart)
+            else applicationContext.startService(restart)
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     companion object {
         private const val NOTIF_ID = 1001
         @Volatile var isRunning = false
