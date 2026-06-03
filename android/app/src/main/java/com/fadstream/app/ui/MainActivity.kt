@@ -9,77 +9,100 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.fadstream.app.BuildConfig
 import com.fadstream.app.onboarding.BatterySetup
 import com.fadstream.app.service.StreamingService
 import com.fadstream.app.stream.ConfigStore
-import com.fadstream.app.stream.DeviceConfig
+import kotlin.concurrent.thread
 
 /**
- * Single-screen control panel: enroll (paste server creds), grant permissions,
- * run the background-survival onboarding, then start the always-on streamer.
+ * Zero-friction UI: one button. Tap Start → it requests the permissions it needs,
+ * auto-enrolls this device with the server (no typing), and starts streaming.
+ * Server config is baked in at build time (BuildConfig.SERVER_HOST).
  */
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { HomeScreen() } }
+        setContent { MaterialTheme { Home() } }
     }
 
     @Composable
-    private fun HomeScreen() {
+    private fun Home() {
         val ctx = this
-        val existing = remember { ConfigStore.load(ctx) }
-        // Pre-fill from saved config so it's never accidentally overwritten with
-        // defaults (and so the user can see/edit what's stored).
-        var host by remember { mutableStateOf(existing?.serverHost ?: "10.0.2.2") }
-        var deviceId by remember { mutableStateOf(existing?.deviceId ?: "") }
-        var secret by remember { mutableStateOf(existing?.secret ?: "") }
-        var streamKey by remember { mutableStateOf(existing?.streamKey ?: "") }
-        var status by remember {
-            mutableStateOf(
-                if (existing != null) "Enrolled: ${existing.deviceId.take(8)}…" else "Not enrolled"
-            )
-        }
+        var streaming by remember { mutableStateOf(StreamingService.isRunning) }
+        var busy by remember { mutableStateOf(false) }
+        var status by remember { mutableStateOf(if (streaming) "Streaming" else "Tap to start") }
 
         val perms = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
-        ) { /* user responded */ }
+        ) { result ->
+            val granted = result[Manifest.permission.CAMERA] == true &&
+                result[Manifest.permission.RECORD_AUDIO] == true
+            if (!granted) { status = "Camera & microphone are required"; return@rememberLauncherForActivityResult }
 
-        Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("FadStream", style = MaterialTheme.typography.headlineSmall)
-            Text(status, style = MaterialTheme.typography.bodyMedium)
+            // Ask the OS to keep us alive in the background (forget-and-run).
+            if (!BatterySetup.isExempt(ctx)) BatterySetup.requestExemption(ctx)
 
-            OutlinedTextField(host, { host = it }, label = { Text("Server host") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(deviceId, { deviceId = it }, label = { Text("Device ID") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(secret, { secret = it }, label = { Text("Secret") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(streamKey, { streamKey = it }, label = { Text("Stream key") }, modifier = Modifier.fillMaxWidth())
-
-            Button(onClick = {
-                ConfigStore.save(ctx, DeviceConfig(host.trim(), deviceId.trim(), secret.trim(), streamKey.trim()))
-                status = "Saved. Grant permissions next."
-            }, modifier = Modifier.fillMaxWidth()) { Text("Save enrollment") }
-
-            Button(onClick = {
-                // Only the permissions actually required to capture + stream.
-                perms.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO,
-                    Manifest.permission.READ_PHONE_STATE))
-            }, modifier = Modifier.fillMaxWidth()) { Text("1. Grant camera / mic") }
-
-            Button(onClick = {
-                if (!BatterySetup.isExempt(ctx)) BatterySetup.requestExemption(ctx)
-            }, modifier = Modifier.fillMaxWidth()) { Text("2. Allow background (battery)") }
-
-            if (BatterySetup.isAggressiveOem()) {
-                Button(onClick = { BatterySetup.openOemAutostart(ctx) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("3. Enable auto-start (${android.os.Build.MANUFACTURER})")
+            busy = true; status = "Setting up…"
+            thread {
+                val cfg = ConfigStore.ensureEnrolled(ctx)   // auto-register (network)
+                runOnUiThread {
+                    busy = false
+                    if (cfg == null) {
+                        status = "Can't reach server (${BuildConfig.SERVER_HOST}). Check it's running."
+                    } else {
+                        StreamingService.start(ctx)
+                        streaming = true
+                        status = "Streaming → ${BuildConfig.SERVER_HOST}"
+                    }
                 }
             }
+        }
 
+        Column(
+            Modifier.fillMaxSize().padding(28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("FadStream", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.height(8.dp))
-            Button(onClick = { StreamingService.start(ctx); status = "Streaming started" },
-                modifier = Modifier.fillMaxWidth()) { Text("▶ Start streaming") }
+            Text(status, textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(28.dp))
+
+            if (busy) {
+                CircularProgressIndicator()
+            } else if (!streaming) {
+                Button(
+                    onClick = {
+                        perms.launch(arrayOf(
+                            Manifest.permission.CAMERA,
+                            Manifest.permission.RECORD_AUDIO,
+                            Manifest.permission.READ_PHONE_STATE,
+                        ))
+                    },
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                ) { Text("▶  Start streaming", style = MaterialTheme.typography.titleMedium) }
+            } else {
+                Button(
+                    onClick = { StreamingService.stop(ctx); streaming = false; status = "Stopped" },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                ) { Text("⏹  Stop streaming", style = MaterialTheme.typography.titleMedium) }
+            }
+
+            // The one thing Android can't automate: some OEMs (Xiaomi/Oppo/...) need
+            // a manual "auto-start" toggle to keep background apps alive.
+            if (BatterySetup.isAggressiveOem()) {
+                Spacer(Modifier.height(20.dp))
+                TextButton(onClick = { BatterySetup.openOemAutostart(ctx) }) {
+                    Text("Stops in the background? Enable auto-start (${android.os.Build.MANUFACTURER})")
+                }
+            }
         }
     }
 }

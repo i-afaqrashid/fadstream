@@ -36,7 +36,13 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
-        run: ./gradlew assembleDebug --stacktrace
+        # Server host comes from a repo variable (Settings → Variables →
+        # FADSTREAM_SERVER_HOST); TURN password from a secret. Override these for
+        # your own deployment. Falls back to the emulator host if unset.
+        run: >
+          ./gradlew assembleDebug --stacktrace
+          -PfadstreamServerHost=${{ vars.FADSTREAM_SERVER_HOST || '10.0.2.2' }}
+          -PfadstreamTurnPassword=${{ secrets.FADSTREAM_TURN_PASSWORD }}
 
       - name: Rename APK
         run: |

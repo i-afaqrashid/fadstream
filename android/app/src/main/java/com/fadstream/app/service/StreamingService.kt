@@ -52,6 +52,7 @@ class StreamingService : Service() {
         try {
             startForegroundWithType()
             foregroundOk = true
+            isRunning = true
         } catch (e: Exception) {
             stopSelf()
         }
@@ -306,6 +307,7 @@ class StreamingService : Service() {
     }
 
     override fun onDestroy() {
+        isRunning = false
         stopAllStreams()
         callMonitor?.stop()
         netCallback?.let {
@@ -321,10 +323,17 @@ class StreamingService : Service() {
 
     companion object {
         private const val NOTIF_ID = 1001
+        @Volatile var isRunning = false
+            private set
+
         fun start(ctx: Context) {
             val i = Intent(ctx, StreamingService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) ctx.startForegroundService(i)
             else ctx.startService(i)
+        }
+
+        fun stop(ctx: Context) {
+            ctx.stopService(Intent(ctx, StreamingService::class.java))
         }
     }
 }

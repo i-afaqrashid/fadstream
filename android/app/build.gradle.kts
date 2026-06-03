@@ -14,6 +14,14 @@ android {
         targetSdk = 35         // Android 15
         versionCode = 1
         versionName = "0.1.0"
+
+        // Server config baked in at build time (personal app — whoever builds it
+        // knows their server). Override with gradle properties, e.g.
+        //   ./gradlew assembleDebug -PfadstreamServerHost=192.168.1.50 -PfadstreamTurnPassword=secret
+        val serverHost = (project.findProperty("fadstreamServerHost") ?: "10.0.2.2").toString()
+        val turnPassword = (project.findProperty("fadstreamTurnPassword") ?: "").toString()
+        buildConfigField("String", "SERVER_HOST", "\"$serverHost\"")
+        buildConfigField("String", "TURN_PASSWORD", "\"$turnPassword\"")
     }
 
     signingConfigs {
@@ -44,7 +52,7 @@ android {
         // consuming its metadata.
         freeCompilerArgs += "-Xskip-metadata-version-check"
     }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
 }
 
 dependencies {

@@ -7,28 +7,34 @@ the control-plane.
 
 ## Build & run
 
-1. Open the `android/` folder in **Android Studio** (Ladybug or newer).
-2. Let it sync Gradle (pulls CameraX, libwebrtc, OkHttp).
-3. Run on a **physical device** (camera + WebRTC are unreliable on emulators).
-
-> The Gradle **wrapper jar** isn't committed. Android Studio regenerates it on
-> first sync, or run `gradle wrapper` once if you have Gradle installed.
-
-## Enroll a device against your server
-
-With the server stack running (`deploy/docker compose up`):
+The **server host is baked in at build time** — pass it as a Gradle property so
+the app knows where to stream:
 
 ```bash
-curl -X POST <server>:8080/api/devices/register \
-  -H 'content-type: application/json' -d '{"name":"my-phone"}'
-# -> { deviceId, secret, streamKey }
+cd android
+./gradlew assembleDebug \
+  -PfadstreamServerHost=192.168.1.50 \
+  -PfadstreamTurnPassword=your-turn-pass
 ```
 
-In the app, paste **Server host / Device ID / Secret / Stream key**, then:
-1. Grant camera / mic / notifications
-2. Allow background (battery exemption)
-3. (Aggressive OEMs) Enable auto-start
-4. ▶ Start streaming
+Install the APK on a **physical device** (camera + WebRTC are unreliable on
+emulators). In CI, these come from the repo variable `FADSTREAM_SERVER_HOST` and
+secret `FADSTREAM_TURN_PASSWORD`.
+
+## Zero-friction usage
+
+There's **nothing to type**. Open the app and tap **▶ Start streaming**:
+
+1. It requests camera + mic (and phone-state) permissions.
+2. It **auto-enrolls** this device with the server (registers itself, gets its
+   own id/secret/stream-key, stores them) — no manual enrollment, no curl.
+3. It starts streaming.
+
+The device shows up on the dashboard named after the phone (e.g. `samsung SM-S948B`).
+
+> Some OEMs (Xiaomi/Oppo/Vivo) need a one-time **auto-start** toggle to keep the
+> app alive in the background — the app surfaces a button for that screen.
+> After a full reboot, just reopen the app (Android forbids silent camera resume).
 
 ### Networking notes
 - **Android emulator → host machine:** use host `10.0.2.2` (already the default).
