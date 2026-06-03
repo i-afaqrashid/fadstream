@@ -19,6 +19,10 @@ import java.util.concurrent.TimeUnit
 class ControlClient(
     private val config: DeviceConfig,
     private val onCommand: (String) -> Unit,
+    // Reports the current camera facing ("front"/"back") + transport in heartbeats
+    // so the server can take front/back snapshots correctly.
+    private val facingProvider: () -> String = { "back" },
+    private val transportProvider: () -> String = { "whip" },
 ) {
     private val http = OkHttpClient.Builder()
         .pingInterval(20, TimeUnit.SECONDS)   // keep the socket warm through Doze
@@ -84,7 +88,9 @@ class ControlClient(
             while (heartbeatRunning && !closed) {
                 val ok = webSocket.send(
                     JSONObject().put("kind", "heartbeat")
-                        .put("status", "live").put("transport", "whip").toString()
+                        .put("status", "live")
+                        .put("transport", transportProvider())
+                        .put("facing", facingProvider()).toString()
                 )
                 if (!ok) break          // socket no longer writable
                 try { Thread.sleep(15_000) } catch (_: InterruptedException) { break }

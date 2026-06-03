@@ -2,7 +2,10 @@ import Fastify from "fastify";
 import websocket from "@fastify/websocket";
 import bcrypt from "bcryptjs";
 import { nanoid } from "nanoid";
+import { execFile } from "node:child_process";
+import { readFile, unlink } from "node:fs/promises";
 import { query, audit } from "./db.js";
+import { putObject, BUCKET } from "./s3.js";
 import { issueDeviceToken, verifyDeviceToken } from "./auth.js";
 import { attachDevice, detachDevice, flushPending, sendCommand, isOnline } from "./bus.js";
 
@@ -76,6 +79,80 @@ app.post("/api/devices/:id/command", async (req, reply) => {
   if (!type) return reply.code(400).send({ error: "type required" });
   const result = await sendCommand(id, type, payload ?? {});
   return result;
+});
+
+// Snapshot: grab a still frame from the live stream and save it to S3.
+// Optional body { camera: "front" | "back" } — if it differs from the device's
+// current facing, we switch the camera, snapshot, then switch back.
+const snapInFlight = new Set<string>();
+app.post("/api/devices/:id/snapshot", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  const { camera } = (req.body as { camera?: string }) ?? {};
+  if (snapInFlight.has(id)) return reply.code(429).send({ error: "snapshot in progress" });
+  snapInFlight.add(id);
+  let switched = false;
+  try {
+    if (camera === "front" || camera === "back") {
+      const { rows } = await query<{ facing: string }>(`SELECT facing FROM devices WHERE id=$1`, [id]);
+      const cur = rows[0]?.facing ?? "back";
+      if (cur !== camera) {
+        await sendCommand(id, "switchCamera", {});
+        switched = true;
+        await new Promise((r) => setTimeout(r, 2500)); // let the camera settle
+      }
+    }
+
+    // Grab one frame from the live stream over RTSP (internal, low latency).
+    const tmp = `/tmp/snap-${id}-${Date.now()}.jpg`;
+    await new Promise<void>((resolve, mreject) => {
+      execFile(
+        "ffmpeg",
+        ["-y", "-rtsp_transport", "tcp", "-i", `rtsp://mediamtx:8554/devices/${id}`,
+         "-frames:v", "1", "-q:v", "2", tmp],
+        { timeout: 15000 },
+        (err) => (err ? mreject(err) : resolve())
+      );
+    });
+
+    const buf = await readFile(tmp);
+    const key = `snapshots/devices/${id}/${Date.now()}.jpg`;
+    const url = await putObject(key, buf, "image/jpeg");
+    await unlink(tmp).catch(() => {});
+    await query(
+      `INSERT INTO snapshots (device_id, path, facing) VALUES ($1, $2, $3)`,
+      [id, url, camera ?? null]
+    );
+    await audit("admin", "snapshot", id, { camera, key });
+    return { ok: true, path: url, bytes: buf.length };
+  } catch (e: any) {
+    return reply.code(500).send({ error: e.message });
+  } finally {
+    if (switched) await sendCommand(id, "switchCamera", {}); // switch back
+    snapInFlight.delete(id);
+  }
+});
+
+app.get("/api/devices/:id/snapshots", async (req) => {
+  const { id } = req.params as { id: string };
+  const { rows } = await query(
+    `SELECT id, path, facing, created_at FROM snapshots WHERE device_id=$1 ORDER BY created_at DESC LIMIT 50`,
+    [id]
+  );
+  return rows;
+});
+
+// Serve a snapshot image inline from S3 (so the dashboard can <img> it).
+app.get("/api/snapshots/:snapId/image", async (req, reply) => {
+  const { snapId } = req.params as { snapId: string };
+  const { rows } = await query<{ path: string }>(`SELECT path FROM snapshots WHERE id=$1`, [snapId]);
+  if (!rows.length) return reply.code(404).send();
+  // path is s3://bucket/key -> fetch from S3 and stream back
+  const key = rows[0].path.replace(`s3://${BUCKET}/`, "");
+  const { GetObjectCommand } = await import("@aws-sdk/client-s3");
+  const { s3 } = await import("./s3.js");
+  const obj = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  reply.header("content-type", "image/jpeg");
+  return reply.send(obj.Body);
 });
 
 // Flip the device camera between back and front (selfie).
@@ -188,8 +265,8 @@ app.get("/ws/device", { websocket: true }, (socket, req) => {
 
     if (msg.kind === "heartbeat") {
       await query(
-        `UPDATE devices SET last_seen_at=now(), status=$2, transport=$3 WHERE id=$1`,
-        [deviceId, msg.status ?? "live", msg.transport ?? null]
+        `UPDATE devices SET last_seen_at=now(), status=$2, transport=$3, facing=COALESCE($4, facing) WHERE id=$1`,
+        [deviceId, msg.status ?? "live", msg.transport ?? null, msg.facing ?? null]
       );
     } else if (msg.kind === "ack") {
       await query(`UPDATE commands SET acked_at=now() WHERE id=$1`, [msg.id]);
@@ -202,6 +279,16 @@ app.get("/ws/device", { websocket: true }, (socket, req) => {
     audit(`device:${deviceId}`, "control.disconnect", deviceId);
   });
 });
+
+// Idempotent schema additions (so existing DB volumes pick up new columns/tables).
+await query(`ALTER TABLE devices ADD COLUMN IF NOT EXISTS facing TEXT DEFAULT 'back'`);
+await query(`CREATE TABLE IF NOT EXISTS snapshots (
+  id BIGSERIAL PRIMARY KEY,
+  device_id UUID NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  path TEXT NOT NULL,
+  facing TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+)`);
 
 app.get("/health", async () => ({ ok: true }));
 

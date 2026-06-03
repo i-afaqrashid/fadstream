@@ -34,6 +34,7 @@ class StreamingService : Service() {
     // transport chosen from the dashboard (useWhip/useSrt) and disables auto.
     @Volatile private var transport = "whip"
     @Volatile private var forced = false
+    @Volatile private var isFront = false   // current camera facing
     private var whipFailures = 0
     private var started = false
 
@@ -57,6 +58,8 @@ class StreamingService : Service() {
             control = ControlClient(
                 config = config,
                 onCommand = ::handleCommand,
+                facingProvider = { if (isFront) "front" else "back" },
+                transportProvider = { transport },
             ).also { it.connect() }
         }
         return START_STICKY   // restart us if the OS kills the process
@@ -150,7 +153,7 @@ class StreamingService : Service() {
             "stopStream" -> { stopAllStreams(); updateNotification("stream stopped (remote)") }
             "startStream" -> { whipFailures = 0; startStreaming(config) }
             "restart" -> { stopAllStreams(); startStreaming(config) }
-            "switchCamera" -> { whip?.switchCamera(); srt?.switchCamera() }
+            "switchCamera" -> { whip?.switchCamera(); srt?.switchCamera(); isFront = !isFront }
             "useWhip" -> { forced = true; transport = "whip"; whipFailures = 0; startWhip(config) }
             "useSrt" -> { forced = true; transport = "srt"; startSrt(config) }
             "useAuto" -> { forced = false; whipFailures = 0; if (transport != "whip") startWhip(config) }

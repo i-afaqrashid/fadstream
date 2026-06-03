@@ -61,6 +61,13 @@
       <button id="btn-whip" class="ghost">⚡ WHIP (low latency)</button>
       <button id="btn-srt" class="ghost">🛡 SRT (bad networks)</button>
     </div>
+    <div class="controls">
+      <span class="meta" style="align-self:center;">Snapshot:</span>
+      <button id="btn-snap-back">📸 Back camera</button>
+      <button id="btn-snap-front" class="ghost">🤳 Front camera</button>
+      <span class="meta" id="snap-status" style="align-self:center;"></span>
+    </div>
+    <div id="snap-gallery" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;"></div>
     <div>
       <h3 style="margin:8px 0;font-size:14px;">Recordings (S3)</h3>
       <table id="recordings"><tbody></tbody></table>
@@ -99,6 +106,7 @@ async function selectDevice(d) {
   document.getElementById("status").textContent = `Connecting to ${d.name}…`;
   await loadDevices();
   await loadRecordings(d.id);
+  await loadSnapshots(d.id);
 
   if (pc) pc.close();
   pc = new RTCPeerConnection();
@@ -155,6 +163,40 @@ document.getElementById("btn-stream-stop").onclick  = () => sendType("stopStream
 document.getElementById("btn-auto").onclick = () => sendType("useAuto");
 document.getElementById("btn-whip").onclick = () => sendType("useWhip");
 document.getElementById("btn-srt").onclick  = () => sendType("useSrt");
+async function snapshot(camera) {
+  if (!activeDevice) return;
+  const s = document.getElementById("snap-status");
+  s.textContent = `📸 capturing ${camera}…`;
+  try {
+    const res = await fetch(`${API}/api/devices/${activeDevice}/snapshot`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ camera }),
+    });
+    s.textContent = res.ok ? "✅ saved to S3" : "⚠ failed (is it streaming?)";
+  } catch { s.textContent = "⚠ error"; }
+  loadSnapshots(activeDevice);
+}
+document.getElementById("btn-snap-back").onclick  = () => snapshot("back");
+document.getElementById("btn-snap-front").onclick = () => snapshot("front");
+
+async function loadSnapshots(id) {
+  const res = await fetch(`${API}/api/devices/${id}/snapshots`);
+  const snaps = await res.json();
+  const g = document.getElementById("snap-gallery");
+  g.innerHTML = "";
+  for (const sn of snaps.slice(0, 12)) {
+    const a = document.createElement("a");
+    a.href = `${API}/api/snapshots/${sn.id}/image`;
+    a.target = "_blank";
+    const img = document.createElement("img");
+    img.src = `${API}/api/snapshots/${sn.id}/image`;
+    img.title = `${sn.facing ?? ""} ${new Date(sn.created_at).toLocaleString()}`;
+    img.style.cssText = "width:120px;height:68px;object-fit:cover;border-radius:6px;border:1px solid #2a3340;";
+    a.appendChild(img);
+    g.appendChild(a);
+  }
+}
+
 document.getElementById("btn-switch").onclick = () => cmd("camera/switch");
 document.getElementById("btn-rec-start").onclick = () => cmd("record/start");
 document.getElementById("btn-rec-stop").onclick  = () => cmd("record/stop").then(() => loadRecordings(activeDevice));

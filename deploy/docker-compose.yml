@@ -80,6 +80,10 @@ services:
       DATABASE_URL: postgres://fadstream:${POSTGRES_PASSWORD:-change-me-in-prod}@postgres:5432/fadstream
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
       PORT: "8080"
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: fadstream-recordings
+      S3_ACCESS_KEY: ${MINIO_USER:-fadstream}
+      S3_SECRET_KEY: ${MINIO_PASSWORD:-change-me-in-prod}
     ports:
       # Host 8090 (8080 is commonly taken by other local servers, e.g. nginx);
       # container still listens on 8080 internally.
