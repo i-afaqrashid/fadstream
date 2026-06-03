@@ -48,8 +48,18 @@
       <button id="btn-rec-start">● Start recording</button>
       <button id="btn-rec-stop" class="ghost">■ Stop &amp; save to S3</button>
       <button id="btn-switch" class="ghost">🤳 Switch camera (selfie)</button>
+    </div>
+    <div class="controls">
+      <button id="btn-stream-start">▶ Start streaming</button>
+      <button id="btn-stream-stop" class="ghost">⏸ Stop streaming</button>
       <button id="btn-restart" class="ghost">↻ Restart stream</button>
       <button id="btn-stop" class="danger">⏻ Stop device</button>
+    </div>
+    <div class="controls">
+      <span class="meta" style="align-self:center;">Transport:</span>
+      <button id="btn-auto" class="ghost">⚙ Auto</button>
+      <button id="btn-whip" class="ghost">⚡ WHIP (low latency)</button>
+      <button id="btn-srt" class="ghost">🛡 SRT (bad networks)</button>
     </div>
     <div>
       <h3 style="margin:8px 0;font-size:14px;">Recordings (S3)</h3>
@@ -131,6 +141,20 @@ async function cmd(path) {
   await fetch(`${API}/api/devices/${activeDevice}/${path}`, { method: "POST" });
 }
 
+// Generic command helper -> POST /api/devices/:id/command {type}
+async function sendType(type) {
+  if (!activeDevice) return;
+  await fetch(`${API}/api/devices/${activeDevice}/command`, {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ type }),
+  });
+}
+
+document.getElementById("btn-stream-start").onclick = () => sendType("startStream");
+document.getElementById("btn-stream-stop").onclick  = () => sendType("stopStream");
+document.getElementById("btn-auto").onclick = () => sendType("useAuto");
+document.getElementById("btn-whip").onclick = () => sendType("useWhip");
+document.getElementById("btn-srt").onclick  = () => sendType("useSrt");
 document.getElementById("btn-switch").onclick = () => cmd("camera/switch");
 document.getElementById("btn-rec-start").onclick = () => cmd("record/start");
 document.getElementById("btn-rec-stop").onclick  = () => cmd("record/stop").then(() => loadRecordings(activeDevice));
