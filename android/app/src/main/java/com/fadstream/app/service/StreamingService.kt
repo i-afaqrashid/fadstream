@@ -10,6 +10,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.fadstream.app.control.ControlClient
 import com.fadstream.app.stream.ConfigStore
+import com.fadstream.app.stream.SrtClient
 import com.fadstream.app.stream.WhipClient
 import kotlin.concurrent.thread
 
@@ -24,8 +25,17 @@ import kotlin.concurrent.thread
 class StreamingService : Service() {
 
     private var whip: WhipClient? = null
+    private var srt: SrtClient? = null
     private var control: ControlClient? = null
     private var wakeLock: PowerManager.WakeLock? = null
+
+    // Transport state. WHIP is primary; after repeated WHIP failures we fall
+    // back to SRT (which tolerates lossy links WebRTC can't). "forced" pins a
+    // transport chosen from the dashboard (useWhip/useSrt) and disables auto.
+    @Volatile private var transport = "whip"
+    @Volatile private var forced = false
+    private var whipFailures = 0
+    private var started = false
 
     override fun onCreate() {
         super.onCreate()
@@ -35,12 +45,13 @@ class StreamingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val config = ConfigStore.load(this) ?: run { stopSelf(); return START_NOT_STICKY }
 
-        if (whip == null) {
+        if (!started) {
+            started = true
             wakeLock = (getSystemService(POWER_SERVICE) as PowerManager)
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fadstream:stream")
                 .also { it.acquire() }
 
-            startWhip(config)
+            startStreaming(config)
 
             // Persistent control channel: remote start/stop/restart + heartbeats.
             control = ControlClient(
@@ -52,22 +63,29 @@ class StreamingService : Service() {
     }
 
     @Volatile private var reconnectGuard = false
+    private val WHIP_FAILURES_BEFORE_SRT = 3
 
     /**
-     * Start (or restart) the WHIP stream and auto-reconnect if the connection
-     * drops — this is what makes streaming survive bad/dropping internet:
-     * when ICE/PeerConnection reports FAILED or DISCONNECTED, we tear down and
-     * re-establish with a short backoff. (Full SRT fallback is a separate path.)
+     * Start the active transport (WHIP primary, SRT fallback). Both own the
+     * camera, so only one runs at a time — we always stop the other first.
      */
+    private fun startStreaming(config: com.fadstream.app.stream.DeviceConfig) {
+        if (transport == "srt") startSrt(config) else startWhip(config)
+    }
+
     private fun startWhip(config: com.fadstream.app.stream.DeviceConfig) {
+        stopSrt()
+        transport = "whip"
         thread(name = "whip-start") {
             try {
                 whip = WhipClient(this).apply {
                     onState = { state ->
-                        updateNotification(state)
+                        updateNotification("whip $state")
+                        if (state == "whip:connected" || state == "ice:COMPLETED") whipFailures = 0
                         if (state == "pc:FAILED" || state == "ice:FAILED" ||
-                            state == "ice:DISCONNECTED") {
-                            scheduleWhipReconnect(config)
+                            state == "ice:DISCONNECTED" || state.startsWith("whip:netError") ||
+                            state.startsWith("whip:error")) {
+                            onWhipFailure(config)
                         }
                     }
                     init()
@@ -75,8 +93,20 @@ class StreamingService : Service() {
                 }
             } catch (e: Throwable) {
                 updateNotification("error: ${e.message}")
-                scheduleWhipReconnect(config)
+                onWhipFailure(config)
             }
+        }
+    }
+
+    /** Count WHIP failures; after a few, fall back to SRT (unless transport is forced). */
+    private fun onWhipFailure(config: com.fadstream.app.stream.DeviceConfig) {
+        whipFailures++
+        if (!forced && whipFailures >= WHIP_FAILURES_BEFORE_SRT) {
+            updateNotification("WHIP failing → switching to SRT")
+            transport = "srt"
+            startSrt(config)
+        } else {
+            scheduleWhipReconnect(config)
         }
     }
 
@@ -88,19 +118,43 @@ class StreamingService : Service() {
             try { whip?.stop() } catch (_: Exception) {}
             whip = null
             reconnectGuard = false
-            updateNotification("reconnecting…")
-            startWhip(config)
+            if (transport == "whip") { updateNotification("reconnecting…"); startWhip(config) }
         }
     }
+
+    private fun startSrt(config: com.fadstream.app.stream.DeviceConfig) {
+        stopWhip()
+        transport = "srt"
+        thread(name = "srt-start") {
+            try {
+                srt = SrtClient(this).apply {
+                    onState = { state -> updateNotification("srt $state") }
+                    start(config)
+                }
+            } catch (e: Throwable) {
+                updateNotification("srt error: ${e.message}")
+            }
+        }
+    }
+
+    private fun stopWhip() { try { whip?.stop() } catch (_: Exception) {}; whip = null }
+    private fun stopSrt() { try { srt?.stop() } catch (_: Exception) {}; srt = null }
+    private fun stopAllStreams() { stopWhip(); stopSrt() }
 
     private fun handleCommand(type: String) {
         val config = ConfigStore.load(this) ?: return
         when (type) {
             "stop" -> stopSelf()
-            "restart" -> { try { whip?.stop() } catch (_: Exception) {}; whip = null; startWhip(config) }
-            "switchCamera" -> whip?.switchCamera()   // back <-> front (selfie)
-            // startRecording/stopRecording are honored server-side (MediaMTX);
-            // hook here if you also want on-device behavior.
+            // Remote start/stop of the STREAM (service keeps running so control
+            // bus stays connected and we can start again any time).
+            "stopStream" -> { stopAllStreams(); updateNotification("stream stopped (remote)") }
+            "startStream" -> { whipFailures = 0; startStreaming(config) }
+            "restart" -> { stopAllStreams(); startStreaming(config) }
+            "switchCamera" -> { whip?.switchCamera(); srt?.switchCamera() }
+            "useWhip" -> { forced = true; transport = "whip"; whipFailures = 0; startWhip(config) }
+            "useSrt" -> { forced = true; transport = "srt"; startSrt(config) }
+            "useAuto" -> { forced = false; whipFailures = 0; if (transport != "whip") startWhip(config) }
+            // startRecording/stopRecording are honored server-side (MediaMTX).
         }
     }
 
@@ -147,7 +201,7 @@ class StreamingService : Service() {
     }
 
     override fun onDestroy() {
-        whip?.stop()
+        stopAllStreams()
         control?.close()
         wakeLock?.let { if (it.isHeld) it.release() }
         super.onDestroy()

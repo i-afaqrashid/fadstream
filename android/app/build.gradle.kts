@@ -38,7 +38,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
+    kotlinOptions {
+        jvmTarget = "17"
+        // RootEncoder is built with a newer Kotlin than our compiler; allow
+        // consuming its metadata.
+        freeCompilerArgs += "-Xskip-metadata-version-check"
+    }
     buildFeatures { compose = true }
 }
 
@@ -60,8 +65,11 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$cameraxVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraxVersion")
 
-    // WebRTC prebuilt (libwebrtc) — WHIP ingest
+    // WebRTC prebuilt (libwebrtc) — WHIP ingest (primary transport)
     implementation("io.github.webrtc-sdk:android:125.6422.07")
+
+    // RootEncoder — SRT ingest (fallback transport for very lossy links)
+    implementation("com.github.pedroSG94.RootEncoder:library:2.7.2")
 
     // Networking: WHIP signaling (HTTP) + control bus (WebSocket)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
