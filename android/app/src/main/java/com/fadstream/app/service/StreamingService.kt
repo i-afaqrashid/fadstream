@@ -19,8 +19,9 @@ import kotlin.concurrent.thread
  * alive with the screen off / app "closed". The persistent notification is the
  * required, visible recording indicator.
  *
- * START_STICKY + BootReceiver = "install once and forget": survives the app
- * being swept from recents and survives reboot.
+ * START_STICKY keeps it alive across the app being swept from recents. (After a
+ * full device reboot the user reopens the app — Android forbids silently
+ * re-acquiring the camera from the background.)
  */
 class StreamingService : Service() {
 

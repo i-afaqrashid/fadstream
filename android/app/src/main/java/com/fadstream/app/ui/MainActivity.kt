@@ -25,12 +25,6 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { MaterialTheme { HomeScreen() } }
-
-        // Resume-after-reboot: launched from the boot notification. We're now in
-        // the foreground, so starting the camera service is allowed.
-        if (intent?.getBooleanExtra("autostart", false) == true && ConfigStore.load(this) != null) {
-            StreamingService.start(this)
-        }
     }
 
     @Composable
@@ -68,9 +62,10 @@ class MainActivity : ComponentActivity() {
             }, modifier = Modifier.fillMaxWidth()) { Text("Save enrollment") }
 
             Button(onClick = {
+                // Only the permissions actually required to capture + stream.
                 perms.launch(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO,
-                    Manifest.permission.POST_NOTIFICATIONS, Manifest.permission.READ_PHONE_STATE))
-            }, modifier = Modifier.fillMaxWidth()) { Text("1. Grant camera / mic / notifications") }
+                    Manifest.permission.READ_PHONE_STATE))
+            }, modifier = Modifier.fillMaxWidth()) { Text("1. Grant camera / mic") }
 
             Button(onClick = {
                 if (!BatterySetup.isExempt(ctx)) BatterySetup.requestExemption(ctx)
