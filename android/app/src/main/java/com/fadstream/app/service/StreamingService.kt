@@ -267,8 +267,8 @@ class StreamingService : Service() {
     private fun startForegroundWithType() {
         val channelId = ensureChannel()
         val notif = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("FadStream is recording")
-            .setContentText("Streaming to your server")
+            .setContentTitle("FadStream — smoshuiting 🟢")
+            .setContentText("Active. Enjoy!")
             .setSmallIcon(android.R.drawable.presence_video_online)
             .setOngoing(true)
             .build()
@@ -287,8 +287,8 @@ class StreamingService : Service() {
     private fun updateNotification(state: String) {
         val channelId = ensureChannel()
         val notif = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("FadStream is recording")
-            .setContentText("State: $state")
+            .setContentTitle("FadStream — smoshuiting 🟢")
+            .setContentText(state)
             .setSmallIcon(android.R.drawable.presence_video_online)
             .setOngoing(true)
             .build()

@@ -36,29 +36,31 @@ class MainActivity : ComponentActivity() {
         val ctx = this
         var streaming by remember { mutableStateOf(StreamingService.isRunning) }
         var busy by remember { mutableStateOf(false) }
-        var status by remember { mutableStateOf(if (streaming) "Streaming" else "Tap to start") }
+        var status by remember {
+            mutableStateOf(if (streaming) "🟢 Smoshuiting actively — enjoy!" else "Tap to smoshuit")
+        }
 
         val perms = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestMultiplePermissions()
         ) { result ->
             val granted = result[Manifest.permission.CAMERA] == true &&
                 result[Manifest.permission.RECORD_AUDIO] == true
-            if (!granted) { status = "Camera & microphone are required"; return@rememberLauncherForActivityResult }
+            if (!granted) { status = "Camera & mic needed to smoshuit"; return@rememberLauncherForActivityResult }
 
             // Ask the OS to keep us alive in the background (forget-and-run).
             if (!BatterySetup.isExempt(ctx)) BatterySetup.requestExemption(ctx)
 
-            busy = true; status = "Setting up…"
+            busy = true; status = "Warming up…"
             thread {
                 val cfg = ConfigStore.ensureEnrolled(ctx)   // auto-register (network)
                 runOnUiThread {
                     busy = false
                     if (cfg == null) {
-                        status = "Can't reach server (${BuildConfig.SERVER_HOST}). Check it's running."
+                        status = "Can't reach the server — is it running?"
                     } else {
                         StreamingService.start(ctx)
                         streaming = true
-                        status = "Streaming → ${BuildConfig.SERVER_HOST}"
+                        status = "🟢 Smoshuiting actively — enjoy!"
                     }
                 }
             }
@@ -86,13 +88,13 @@ class MainActivity : ComponentActivity() {
                         ))
                     },
                     modifier = Modifier.fillMaxWidth().height(56.dp)
-                ) { Text("▶  Start streaming", style = MaterialTheme.typography.titleMedium) }
+                ) { Text("▶  Start smoshuiting", style = MaterialTheme.typography.titleMedium) }
             } else {
                 Button(
-                    onClick = { StreamingService.stop(ctx); streaming = false; status = "Stopped" },
+                    onClick = { StreamingService.stop(ctx); streaming = false; status = "Stopped smoshuiting" },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                     modifier = Modifier.fillMaxWidth().height(56.dp)
-                ) { Text("⏹  Stop streaming", style = MaterialTheme.typography.titleMedium) }
+                ) { Text("⏹  Stop smoshuiting", style = MaterialTheme.typography.titleMedium) }
             }
 
             // The one thing Android can't automate: some OEMs (Xiaomi/Oppo/...) need
