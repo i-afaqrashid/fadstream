@@ -1,0 +1,73 @@
+# MediaMTX configuration for FadStream
+# Docs: https://github.com/bluenviron/mediamtx
+#
+# Ingest from the Android app via WHIP (WebRTC) primary, SRT fallback.
+# Playback in the browser via WHEP. Every publish/read is authorized by the
+# control-plane over HTTP, so a phone can only publish to its own path and the
+# dashboard can only read paths it is authorized for.
+
+logLevel: info
+logDestinations: [stdout]
+
+###############################################
+# Authentication: delegate every action to the control-plane.
+# MediaMTX POSTs {user, password, ip, action, path, ...} to authHTTPAddress;
+# a 2xx authorizes, anything else denies.
+###############################################
+authMethod: http
+authHTTPAddress: http://control-plane:8080/api/mediamtx/auth
+authHTTPExclude: []   # authorize EVERYTHING, including reads
+
+###############################################
+# Protocols
+###############################################
+# RTSP
+rtsp: yes
+rtspAddress: :8554
+
+# RTMP (legacy/quick-proof ingest)
+rtmp: yes
+rtmpAddress: :1935
+
+# HLS (compatibility playback)
+hls: yes
+hlsAddress: :8888
+hlsVariant: lowLatency
+
+# WebRTC (WHIP ingest + WHEP playback) -- primary transport
+webrtc: yes
+webrtcAddress: :8889
+webrtcLocalUDPAddress: :8189
+# In production set webrtcAdditionalHosts to your server's public IP/hostname
+# so ICE candidates are reachable from outside, e.g.:
+# webrtcAdditionalHosts: [stream.example.com]
+webrtcAdditionalHosts: []
+# Optional TURN for carriers that block direct UDP (cellular NAT):
+# webrtcICEServers2:
+#   - url: turn:turn.example.com:3478
+#     username: fadstream
+#     password: change-me
+
+# SRT (resilient fallback for lossy/high-latency links) -- secondary transport
+srt: yes
+srtAddress: :8890
+
+###############################################
+# Paths: any device may publish under devices/<id>.
+# Recording is segmented MP4 on disk; sync to object storage out-of-band.
+###############################################
+pathDefaults:
+  # Record server-side (NOT on the phone -> zero local footprint on device).
+  record: yes
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4          # fragmented MP4: crash/network-drop resistant
+  recordSegmentDuration: 1h
+  recordDeleteAfter: 168h     # 7-day retention; tune to taste
+
+  # Reconnect resilience: keep the path alive briefly when the publisher drops
+  # so the same session can resume without tearing down readers.
+  sourceOnDemandCloseAfter: 10s
+
+paths:
+  # Catch-all: device paths are created dynamically on first authorized publish.
+  all_others:

@@ -1,0 +1,22 @@
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/captures/
+*.iml
+
+# Node (control-plane)
+node_modules/
+server/control-plane/dist/
+
+# Env / secrets
+deploy/.env
+*.local
+
+# OS
+.DS_Store
+
+# Build output
+out/

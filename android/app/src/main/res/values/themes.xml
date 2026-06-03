@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose supplies the real styling; this base theme just needs to exist
+         and not pull in an ActionBar. -->
+    <style name="Theme.FadStream" parent="android:Theme.Material.NoActionBar" />
+</resources>

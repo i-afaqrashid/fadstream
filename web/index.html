@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FadStream Dashboard</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, sans-serif;
+         background: #0b0d10; color: #e7e9ec; }
+  header { padding: 16px 20px; border-bottom: 1px solid #1c2127;
+           display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #ef4444; }
+  .dot.live { background: #22c55e; }
+  main { display: grid; grid-template-columns: 280px 1fr; gap: 0; height: calc(100vh - 53px); }
+  aside { border-right: 1px solid #1c2127; overflow-y: auto; padding: 12px; }
+  .device { padding: 10px 12px; border-radius: 8px; cursor: pointer;
+            display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+  .device:hover { background: #12161b; }
+  .device.active { background: #161b22; outline: 1px solid #2a3340; }
+  .device small { color: #8b949e; display: block; }
+  section { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  video { width: 100%; max-width: 900px; background: #000; border-radius: 12px; aspect-ratio: 16/9; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; }
+  button { background: #1f6feb; color: #fff; border: 0; padding: 9px 16px;
+           border-radius: 8px; font-size: 13px; cursor: pointer; }
+  button.ghost { background: #1c2127; }
+  button.danger { background: #da3633; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  .meta { color: #8b949e; font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #1c2127; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="hdr-dot"></span>
+  <h1>FadStream — live devices</h1>
+</header>
+<main>
+  <aside id="device-list"></aside>
+  <section>
+    <video id="player" autoplay playsinline muted controls></video>
+    <div class="meta" id="status">Select a device to view its stream.</div>
+    <div class="controls">
+      <button id="btn-rec-start">● Start recording</button>
+      <button id="btn-rec-stop" class="ghost">■ Stop &amp; save to S3</button>
+      <button id="btn-restart" class="ghost">↻ Restart stream</button>
+      <button id="btn-stop" class="danger">⏻ Stop device</button>
+    </div>
+    <div>
+      <h3 style="margin:8px 0;font-size:14px;">Recordings (S3)</h3>
+      <table id="recordings"><tbody></tbody></table>
+    </div>
+  </section>
+</main>
+
+<script>
+// In Docker the dashboard is served by nginx on :3000; control-plane on :8080,
+// MediaMTX WHEP on :8889. Adjust host if serving from a different origin.
+const HOST = location.hostname;
+const API = `http://${HOST}:8080`;
+const WHEP_BASE = `http://${HOST}:8889`;
+
+let activeDevice = null;
+let pc = null;
+
+async function loadDevices() {
+  const res = await fetch(`${API}/api/devices`);
+  const devices = await res.json();
+  const list = document.getElementById("device-list");
+  list.innerHTML = "";
+  for (const d of devices) {
+    const el = document.createElement("div");
+    el.className = "device" + (activeDevice === d.id ? " active" : "");
+    el.innerHTML = `<span class="dot ${d.online ? "live" : ""}"></span>
+      <div><strong>${d.name}</strong><small>${d.status} · ${d.transport ?? "—"}</small></div>`;
+    el.onclick = () => selectDevice(d);
+    list.appendChild(el);
+  }
+}
+
+// WHEP playback: POST our SDP offer to MediaMTX, apply its answer.
+async function selectDevice(d) {
+  activeDevice = d.id;
+  document.getElementById("status").textContent = `Connecting to ${d.name}…`;
+  await loadDevices();
+  await loadRecordings(d.id);
+
+  if (pc) pc.close();
+  pc = new RTCPeerConnection();
+  pc.addTransceiver("video", { direction: "recvonly" });
+  pc.addTransceiver("audio", { direction: "recvonly" });
+  pc.ontrack = (e) => { document.getElementById("player").srcObject = e.streams[0]; };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  const res = await fetch(`${WHEP_BASE}/devices/${d.id}/whep`, {
+    method: "POST",
+    headers: { "Content-Type": "application/sdp" },
+    body: offer.sdp,
+  });
+  if (!res.ok) {
+    document.getElementById("status").textContent = `No live stream for ${d.name}.`;
+    return;
+  }
+  await pc.setRemoteDescription({ type: "answer", sdp: await res.text() });
+  document.getElementById("status").textContent = `Live: ${d.name}`;
+}
+
+async function loadRecordings(id) {
+  const res = await fetch(`${API}/api/devices/${id}/recordings`);
+  const recs = await res.json();
+  const tbody = document.querySelector("#recordings tbody");
+  tbody.innerHTML = recs.length ? "" : "<tr><td class='meta'>No recordings yet.</td></tr>";
+  for (const r of recs) {
+    const tr = document.createElement("tr");
+    const mb = r.bytes ? (r.bytes / 1e6).toFixed(1) + " MB" : "—";
+    tr.innerHTML = `<td>${new Date(r.started_at).toLocaleString()}</td>
+                    <td>${mb}</td><td class="meta">${r.path}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+async function cmd(path) {
+  if (!activeDevice) return;
+  await fetch(`${API}/api/devices/${activeDevice}/${path}`, { method: "POST" });
+}
+
+document.getElementById("btn-rec-start").onclick = () => cmd("record/start");
+document.getElementById("btn-rec-stop").onclick  = () => cmd("record/stop").then(() => loadRecordings(activeDevice));
+document.getElementById("btn-restart").onclick   = () =>
+  fetch(`${API}/api/devices/${activeDevice}/command`, { method: "POST",
+    headers: {"content-type":"application/json"}, body: JSON.stringify({type:"restart"}) });
+document.getElementById("btn-stop").onclick      = () =>
+  fetch(`${API}/api/devices/${activeDevice}/command`, { method: "POST",
+    headers: {"content-type":"application/json"}, body: JSON.stringify({type:"stop"}) });
+
+loadDevices();
+setInterval(loadDevices, 5000);
+</script>
+</body>
+</html>
