@@ -1,0 +1,31 @@
+{
+  "name": "fadstream-control-plane",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "FadStream control plane: device registry, auth, WSS command bus, MediaMTX auth hook",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts"
+  },
+  "scripts_note": "uploader runs via: node dist/uploader.js",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@fastify/websocket": "^11.0.1",
+    "bcryptjs": "^2.4.3",
+    "fastify": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "nanoid": "^5.0.9",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
