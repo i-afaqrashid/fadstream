@@ -38,6 +38,7 @@ class WhipClient(private val context: Context) {
     private var capturer: CameraVideoCapturer? = null
     private var videoSource: VideoSource? = null
     private var audioSource: AudioSource? = null
+    private var surfaceHelper: SurfaceTextureHelper? = null
 
     var onState: ((String) -> Unit)? = null
 
@@ -141,6 +142,7 @@ class WhipClient(private val context: Context) {
         val src = factory.createVideoSource(false)
         videoSource = src
         val helper = SurfaceTextureHelper.create("CaptureThread", eglBase.eglBaseContext)
+        surfaceHelper = helper
         cap.initialize(helper, context, src.capturerObserver)
         try {
             cap.startCapture(1280, 720, 30)
@@ -227,11 +229,19 @@ class WhipClient(private val context: Context) {
     }
 
     fun stop() {
+        // Order matters: stop capture -> close pc -> dispose sources -> dispose
+        // the GL/EGL resources. Leaving surfaceHelper/eglBase/factory undisposed
+        // leaks EGL contexts (EGL_BAD_SURFACE on the next start).
         try { capturer?.stopCapture() } catch (_: Exception) {}
-        capturer?.dispose()
-        videoSource?.dispose()
-        audioSource?.dispose()
-        pc?.close(); pc = null
+        try { capturer?.dispose() } catch (_: Exception) {}
+        try { pc?.close() } catch (_: Exception) {}
+        try { videoSource?.dispose() } catch (_: Exception) {}
+        try { audioSource?.dispose() } catch (_: Exception) {}
+        try { surfaceHelper?.dispose() } catch (_: Exception) {}
+        try { factory.dispose() } catch (_: Exception) {}
+        try { eglBase.release() } catch (_: Exception) {}
+        capturer = null; videoSource = null; audioSource = null
+        surfaceHelper = null; pc = null
     }
 
     companion object { private const val TAG = "WhipClient" }

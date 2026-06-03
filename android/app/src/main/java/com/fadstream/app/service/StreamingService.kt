@@ -103,7 +103,7 @@ class StreamingService : Service() {
     }
 
     private fun startWhip(config: com.fadstream.app.stream.DeviceConfig) {
-        stopSrt()
+        stopAllStreams()   // never run two transports / two captures at once
         transport = "whip"
         thread(name = "whip-start") {
             try {
@@ -212,7 +212,7 @@ class StreamingService : Service() {
     }
 
     private fun startSrt(config: com.fadstream.app.stream.DeviceConfig) {
-        stopWhip()
+        stopAllStreams()   // never run two transports / two captures at once
         transport = "srt"
         thread(name = "srt-start") {
             try {
