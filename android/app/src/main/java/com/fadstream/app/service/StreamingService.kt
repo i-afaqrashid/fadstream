@@ -40,17 +40,7 @@ class StreamingService : Service() {
                 .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fadstream:stream")
                 .also { it.acquire() }
 
-            thread(name = "whip-start") {
-                try {
-                    whip = WhipClient(this).apply {
-                        onState = { updateNotification(it) }
-                        init()
-                        start(config)
-                    }
-                } catch (e: Throwable) {
-                    updateNotification("error: ${e.message}")
-                }
-            }
+            startWhip(config)
 
             // Persistent control channel: remote start/stop/restart + heartbeats.
             control = ControlClient(
@@ -61,10 +51,53 @@ class StreamingService : Service() {
         return START_STICKY   // restart us if the OS kills the process
     }
 
+    @Volatile private var reconnectGuard = false
+
+    /**
+     * Start (or restart) the WHIP stream and auto-reconnect if the connection
+     * drops — this is what makes streaming survive bad/dropping internet:
+     * when ICE/PeerConnection reports FAILED or DISCONNECTED, we tear down and
+     * re-establish with a short backoff. (Full SRT fallback is a separate path.)
+     */
+    private fun startWhip(config: com.fadstream.app.stream.DeviceConfig) {
+        thread(name = "whip-start") {
+            try {
+                whip = WhipClient(this).apply {
+                    onState = { state ->
+                        updateNotification(state)
+                        if (state == "pc:FAILED" || state == "ice:FAILED" ||
+                            state == "ice:DISCONNECTED") {
+                            scheduleWhipReconnect(config)
+                        }
+                    }
+                    init()
+                    start(config)
+                }
+            } catch (e: Throwable) {
+                updateNotification("error: ${e.message}")
+                scheduleWhipReconnect(config)
+            }
+        }
+    }
+
+    private fun scheduleWhipReconnect(config: com.fadstream.app.stream.DeviceConfig) {
+        if (reconnectGuard) return            // collapse duplicate triggers
+        reconnectGuard = true
+        thread(name = "whip-reconnect") {
+            Thread.sleep(2000)
+            try { whip?.stop() } catch (_: Exception) {}
+            whip = null
+            reconnectGuard = false
+            updateNotification("reconnecting…")
+            startWhip(config)
+        }
+    }
+
     private fun handleCommand(type: String) {
+        val config = ConfigStore.load(this) ?: return
         when (type) {
             "stop" -> stopSelf()
-            "restart" -> { whip?.stop(); whip = null; onStartCommand(null, 0, 0) }
+            "restart" -> { try { whip?.stop() } catch (_: Exception) {}; whip = null; startWhip(config) }
             // startRecording/stopRecording are honored server-side (MediaMTX);
             // hook here if you also want on-device behavior.
         }

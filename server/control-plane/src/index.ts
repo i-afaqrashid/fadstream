@@ -9,6 +9,17 @@ import { attachDevice, detachDevice, flushPending, sendCommand, isOnline } from 
 const app = Fastify({ logger: true });
 await app.register(websocket);
 
+// CORS: the dashboard is served from a different port (8081) than this API
+// (8080), so browsers treat it as cross-origin and block fetches without these
+// headers. Allow all origins (self-hosted tool on a trusted LAN).
+app.addHook("onRequest", (req, reply, done) => {
+  reply.header("Access-Control-Allow-Origin", "*");
+  reply.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  reply.header("Access-Control-Allow-Headers", "content-type");
+  if (req.method === "OPTIONS") { reply.code(204).send(); return; }
+  done();
+});
+
 // ---------------------------------------------------------------------------
 // Device enrollment & auth
 // ---------------------------------------------------------------------------

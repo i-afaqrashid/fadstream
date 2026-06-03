@@ -28,6 +28,12 @@ class ControlClient(
     private var backoffMs = 1000L
 
     fun connect() {
+        // fetchToken() does a blocking HTTP call, so it must never run on the
+        // main thread (NetworkOnMainThreadException). Always connect on a worker.
+        Thread { connectBlocking() }.start()
+    }
+
+    private fun connectBlocking() {
         val token = fetchToken() ?: run { scheduleReconnect(); return }
         val req = Request.Builder().url(config.controlWs(token)).build()
         ws = http.newWebSocket(req, object : WebSocketListener() {
